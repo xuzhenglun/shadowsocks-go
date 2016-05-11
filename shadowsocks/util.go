@@ -1,12 +1,12 @@
 package shadowsocks
 
 import (
-	"errors"
-	"fmt"
-	"os"
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/binary"
+	"errors"
+	"fmt"
+	"os"
 )
 
 func PrintVersion() {
@@ -28,7 +28,7 @@ func IsFileExists(path string) (bool, error) {
 	return false, err
 }
 
-func HmacSha1(key []byte, data []byte) []byte {
+func HmacSha1(key []byte, data []byte) []byte { //生成校验码，返回10个byte长度
 	hmacSha1 := hmac.New(sha1.New, key)
 	hmacSha1.Write(data)
 	return hmacSha1.Sum(nil)[:10]
@@ -36,6 +36,13 @@ func HmacSha1(key []byte, data []byte) []byte {
 
 func otaConnectAuth(iv, key, data []byte) []byte {
 	return append(data, HmacSha1(append(iv, key...), data)...)
+	/*
+		+------+---------------------+------------------+-----------+
+		| ATYP | Destination Address | Destination Port | HMAC-SHA1 |
+		+------+---------------------+------------------+-----------+
+		|  1   |       Variable      |         2        |    10     |
+		+------+---------------------+------------------+-----------+
+	*/
 }
 
 func otaReqChunkAuth(iv []byte, chunkId uint32, data []byte) []byte {
@@ -45,6 +52,13 @@ func otaReqChunkAuth(iv []byte, chunkId uint32, data []byte) []byte {
 	binary.BigEndian.PutUint32(chunkIdBytes, chunkId)
 	header := append(nb, HmacSha1(append(iv, chunkIdBytes...), data)...)
 	return append(header, data...)
+	/*
+		+----------+-----------+----------+----
+		| DATA.LEN | HMAC-SHA1 |   DATA   | ...
+		+----------+-----------+----------+----
+		|     2    |     10    | Variable | ...
+		+----------+-----------+----------+----<Paste>
+	*/
 }
 
 type ClosedFlag struct {

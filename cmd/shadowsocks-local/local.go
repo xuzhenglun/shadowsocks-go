@@ -38,7 +38,7 @@ func init() {
 	rand.Seed(time.Now().Unix())
 }
 
-func handShake(conn net.Conn) (err error) {
+func handShake(conn net.Conn) (err error) { //与本地程序完成握手
 	const (
 		idVer     = 0
 		idNmethod = 1
@@ -75,7 +75,14 @@ func handShake(conn net.Conn) (err error) {
 	return
 }
 
-func getRequest(conn net.Conn) (rawaddr []byte, host string, err error) {
+func getRequest(conn net.Conn) (rawaddr []byte, host string, err error) { //完成握手之后本地程序会发来目标请求，解析请求
+	/*
+	   +--------------+---------------------+------------------+----------+
+	   | Address Type | Destination Address | Destination Port |   Data   |
+	   +--------------+---------------------+------------------+----------+
+	   |      1       |       Variable      |         2        | Variable |
+	   +--------------+---------------------+------------------+----------+
+	*/
 	const (
 		idVer   = 0
 		idCmd   = 1
@@ -97,7 +104,7 @@ func getRequest(conn net.Conn) (rawaddr []byte, host string, err error) {
 	var n int
 	ss.SetReadTimeout(conn)
 	// read till we get possible domain length field
-	if n, err = io.ReadAtLeast(conn, buf, idDmLen+1); err != nil {
+	if n, err = io.ReadAtLeast(conn, buf, idDmLen+1); err != nil { //获取目标地址类型
 		return
 	}
 	// check version and cmd
@@ -134,7 +141,7 @@ func getRequest(conn net.Conn) (rawaddr []byte, host string, err error) {
 		return
 	}
 
-	rawaddr = buf[idType:reqLen]
+	rawaddr = buf[idType:reqLen] //解析目标ip，小端
 
 	if debug {
 		switch buf[idType] {
@@ -145,7 +152,7 @@ func getRequest(conn net.Conn) (rawaddr []byte, host string, err error) {
 		case typeDm:
 			host = string(buf[idDm0 : idDm0+buf[idDmLen]])
 		}
-		port := binary.BigEndian.Uint16(buf[reqLen-2 : reqLen])
+		port := binary.BigEndian.Uint16(buf[reqLen-2 : reqLen]) //端口，两个字节，大端
 		host = net.JoinHostPort(host, strconv.Itoa(int(port)))
 	}
 
@@ -162,7 +169,7 @@ var servers struct {
 	failCnt   []int // failed connection count
 }
 
-func parseServerConfig(config *ss.Config) {
+func parseServerConfig(config *ss.Config) { //解析配置文件
 	hasPort := func(s string) bool {
 		_, port, err := net.SplitHostPort(s)
 		if err != nil {
@@ -237,7 +244,7 @@ func parseServerConfig(config *ss.Config) {
 	return
 }
 
-func connectToServer(serverId int, rawaddr []byte, addr string) (remote *ss.Conn, err error) {
+func connectToServer(serverId int, rawaddr []byte, addr string) (remote *ss.Conn, err error) { //完成与ss-server远端的握手，完成iv等初始化，返回连接
 	se := servers.srvCipher[serverId]
 	remote, err = ss.DialWithRawAddr(rawaddr, se.server, se.cipher.Copy())
 	if err != nil {
@@ -257,7 +264,7 @@ func connectToServer(serverId int, rawaddr []byte, addr string) (remote *ss.Conn
 // connection failure, try the next server. A failed server will be tried with
 // some probability according to its fail count, so we can discover recovered
 // servers.
-func createServerConn(rawaddr []byte, addr string) (remote *ss.Conn, err error) {
+func createServerConn(rawaddr []byte, addr string) (remote *ss.Conn, err error) { //在有多个远端服务器的时候，挑选一个合适的服务器选择连接
 	const baseFailCnt = 20
 	n := len(servers.srvCipher)
 	skipped := make([]int, 0)
@@ -282,7 +289,7 @@ func createServerConn(rawaddr []byte, addr string) (remote *ss.Conn, err error) 
 	return nil, err
 }
 
-func handleConnection(conn net.Conn) {
+func handleConnection(conn net.Conn) { //主handle函数
 	if debug {
 		debug.Printf("socks connect from %s\n", conn.RemoteAddr().String())
 	}
@@ -294,11 +301,11 @@ func handleConnection(conn net.Conn) {
 	}()
 
 	var err error = nil
-	if err = handShake(conn); err != nil {
+	if err = handShake(conn); err != nil { //与本地程序完成握手
 		log.Println("socks handshake:", err)
 		return
 	}
-	rawaddr, addr, err := getRequest(conn)
+	rawaddr, addr, err := getRequest(conn) //从本地程序解析出所需的目标地址，为了debug存在的string化的目标地址
 	if err != nil {
 		log.Println("error getting request:", err)
 		return
@@ -306,13 +313,13 @@ func handleConnection(conn net.Conn) {
 	// Sending connection established message immediately to client.
 	// This some round trip time for creating socks connection with the client.
 	// But if connection failed, the client will get connection reset error.
-	_, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x43})
+	_, err = conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x43}) //告诉本地程序，请求正确，请开始正式发送数据
 	if err != nil {
 		debug.Println("send connection confirmation:", err)
 		return
 	}
 
-	remote, err := createServerConn(rawaddr, addr)
+	remote, err := createServerConn(rawaddr, addr) //与远端ss-server握手，并返回连接句柄
 	if err != nil {
 		if len(servers.srvCipher) > 1 {
 			log.Println("Failed connect to all avaiable shadowsocks server")
@@ -325,13 +332,13 @@ func handleConnection(conn net.Conn) {
 		}
 	}()
 
-	go ss.PipeThenClose(conn, remote)
-	ss.PipeThenClose(remote, conn)
+	go ss.PipeThenClose(conn, remote) //创建从本地到远端的管道
+	ss.PipeThenClose(remote, conn)    //创建从远端到本地管道
 	closed = true
 	debug.Println("closed connection to", addr)
 }
 
-func run(listenAddr string) {
+func run(listenAddr string) { //传入监听地址，开始监听
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		log.Fatal(err)
@@ -425,6 +432,6 @@ func main() {
 	}
 
 	parseServerConfig(config)
-
+	//以上都是在读取配置
 	run(cmdLocal + ":" + strconv.Itoa(config.LocalPort))
 }

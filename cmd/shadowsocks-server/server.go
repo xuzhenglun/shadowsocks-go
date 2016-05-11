@@ -38,7 +38,7 @@ const (
 
 var debug ss.DebugLog
 
-func getRequest(conn *ss.Conn, auth bool) (host string, ota bool, err error) {
+func getRequest(conn *ss.Conn, auth bool) (host string, ota bool, err error) { //从远端的ss-local获取请求，解析出目标服务器，是否开启OTA
 	ss.SetReadTimeout(conn)
 
 	// buf size should at least have the same size with the largest possible
@@ -46,13 +46,13 @@ func getRequest(conn *ss.Conn, auth bool) (host string, ota bool, err error) {
 	// 1(addrType) + 1(lenByte) + 256(max length address) + 2(port) + 10(hmac-sha1)
 	buf := make([]byte, 270)
 	// read till we get possible domain length field
-	if _, err = io.ReadFull(conn, buf[:idType+1]); err != nil {
+	if _, err = io.ReadFull(conn, buf[:idType+1]); err != nil { //读取包类型
 		return
 	}
 
 	var reqStart, reqEnd int
 	addrType := buf[idType]
-	switch addrType & ss.AddrMask {
+	switch addrType & ss.AddrMask { //获取不同地址的长度
 	case typeIPv4:
 		reqStart, reqEnd = idIP0, idIP0+lenIPv4
 	case typeIPv6:
@@ -67,14 +67,14 @@ func getRequest(conn *ss.Conn, auth bool) (host string, ota bool, err error) {
 		return
 	}
 
-	if _, err = io.ReadFull(conn, buf[reqStart:reqEnd]); err != nil {
+	if _, err = io.ReadFull(conn, buf[reqStart:reqEnd]); err != nil { //读取请求
 		return
 	}
 
 	// Return string for typeIP is not most efficient, but browsers (Chrome,
 	// Safari, Firefox) all seems using typeDm exclusively. So this is not a
 	// big problem.
-	switch addrType & ss.AddrMask {
+	switch addrType & ss.AddrMask { //字符串化目标服务器地址
 	case typeIPv4:
 		host = net.IP(buf[idIP0 : idIP0+net.IPv4len]).String()
 	case typeIPv6:
@@ -83,17 +83,17 @@ func getRequest(conn *ss.Conn, auth bool) (host string, ota bool, err error) {
 		host = string(buf[idDm0 : idDm0+buf[idDmLen]])
 	}
 	// parse port
-	port := binary.BigEndian.Uint16(buf[reqEnd-2 : reqEnd])
-	host = net.JoinHostPort(host, strconv.Itoa(int(port)))
+	port := binary.BigEndian.Uint16(buf[reqEnd-2 : reqEnd]) //大端序获取端口
+	host = net.JoinHostPort(host, strconv.Itoa(int(port)))  //给服务器地址加上端口
 	// if specified one time auth enabled, we should verify this
-	if auth || addrType&ss.OneTimeAuthMask > 0 {
+	if auth || addrType&ss.OneTimeAuthMask > 0 { //检测是否开启了一次验证，即使服务器没开启，本地开启了也能failback支持.一次验证必须先验证请求合法，才能建立Pipi连接。
 		ota = true
 		if _, err = io.ReadFull(conn, buf[reqEnd:reqEnd+lenHmacSha1]); err != nil {
 			return
 		}
-		iv := conn.GetIv()
+		iv := conn.GetIv() //从连接信息中获取iv和key
 		key := conn.GetKey()
-		actualHmacSha1Buf := ss.HmacSha1(append(iv, key...), buf[:reqEnd])
+		actualHmacSha1Buf := ss.HmacSha1(append(iv, key...), buf[:reqEnd]) //验证
 		if !bytes.Equal(buf[reqEnd:reqEnd+lenHmacSha1], actualHmacSha1Buf) {
 			err = fmt.Errorf("verify one time auth failed, iv=%v key=%v data=%v", iv, key, buf[:reqEnd])
 			return
@@ -107,7 +107,7 @@ const logCntDelta = 100
 var connCnt int
 var nextLogConnCnt int = logCntDelta
 
-func handleConnection(conn *ss.Conn, auth bool) {
+func handleConnection(conn *ss.Conn, auth bool) { //
 	var host string
 
 	connCnt++ // this maybe not accurate, but should be enough
@@ -117,7 +117,7 @@ func handleConnection(conn *ss.Conn, auth bool) {
 		// added twice for current peak connection number level.
 		log.Printf("Number of client connections reaches %d\n", nextLogConnCnt)
 		nextLogConnCnt += logCntDelta
-	}
+	} //貌似是一个能够返回峰值连接数的一个log
 
 	// function arguments are always evaluated, so surround debug statement
 	// with if statement
@@ -141,7 +141,7 @@ func handleConnection(conn *ss.Conn, auth bool) {
 		return
 	}
 	debug.Println("connecting", host)
-	remote, err := net.Dial("tcp", host)
+	remote, err := net.Dial("tcp", host) //与目标服务器发起连接
 	if err != nil {
 		if ne, ok := err.(*net.OpError); ok && (ne.Err == syscall.EMFILE || ne.Err == syscall.ENFILE) {
 			// log too many open file error
@@ -161,9 +161,9 @@ func handleConnection(conn *ss.Conn, auth bool) {
 		debug.Printf("piping %s<->%s ota=%v connOta=%v", conn.RemoteAddr(), host, ota, conn.IsOta())
 	}
 	if ota {
-		go ss.PipeThenCloseOta(conn, remote)
+		go ss.PipeThenCloseOta(conn, remote) //建立OTA的pipi
 	} else {
-		go ss.PipeThenClose(conn, remote)
+		go ss.PipeThenClose(conn, remote) //建立普通管道
 	}
 	ss.PipeThenClose(remote, conn)
 	closed = true
@@ -267,7 +267,7 @@ func waitSignal() {
 	}
 }
 
-func run(port, password string, auth bool) {
+func run(port, password string, auth bool) { //监听一个端口启用一个run的GoRoutine
 	ln, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Printf("error listening port %v: %v\n", port, err)
@@ -286,7 +286,7 @@ func run(port, password string, auth bool) {
 		// Creating cipher upon first connection.
 		if cipher == nil {
 			log.Println("creating cipher for port:", port)
-			cipher, err = ss.NewCipher(config.Method, password)
+			cipher, err = ss.NewCipher(config.Method, password) //生成加密key，但是iv还没生成
 			if err != nil {
 				log.Printf("Error generating cipher for port: %s %v\n", port, err)
 				conn.Close()
@@ -374,7 +374,7 @@ func main() {
 	if core > 0 {
 		runtime.GOMAXPROCS(core)
 	}
-	for port, password := range config.PortPassword {
+	for port, password := range config.PortPassword { //启用多个run的Go Routine来监听多个端口，没个端口可以有不同的密码
 		go run(port, password, config.Auth)
 	}
 

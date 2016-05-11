@@ -1,6 +1,7 @@
 // Provides leaky buffer, based on the example in Effective Go.
 package shadowsocks
 
+//构建了一个可以循环利用的缓存池，避免频繁申请释放内存
 type LeakyBuf struct {
 	bufSize  int // size of each buffer
 	freeList chan []byte

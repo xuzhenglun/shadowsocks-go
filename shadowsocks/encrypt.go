@@ -26,12 +26,12 @@ func md5sum(d []byte) []byte {
 	return h.Sum(nil)
 }
 
-func evpBytesToKey(password string, keyLen int) (key []byte) {
+func evpBytesToKey(password string, keyLen int) (key []byte) { //把密码转化成需要长度的Key
 	const md5Len = 16
 
 	cnt := (keyLen-1)/md5Len + 1
 	m := make([]byte, cnt*md5Len)
-	copy(m, md5sum([]byte(password)))
+	copy(m, md5sum([]byte(password))) //KEY前16位是密码的md5
 
 	// Repeatedly call md5 until bytes generated is enough.
 	// Each call to md5 uses data: prev md5 sum + password.
@@ -98,13 +98,13 @@ func newChaCha20Stream(key, iv []byte, _ DecOrEnc) (cipher.Stream, error) {
 	return chacha20.New(key, iv)
 }
 
-type salsaStreamCipher struct {
+type salsaStreamCipher struct { //Salsa20加密算法定义类
 	nonce   [8]byte
 	key     [32]byte
 	counter int
 }
 
-func (c *salsaStreamCipher) XORKeyStream(dst, src []byte) {
+func (c *salsaStreamCipher) XORKeyStream(dst, src []byte) { //Salsa20加密算法的实现，该方法实现了cipher.Stream接口
 	var buf []byte
 	padLen := c.counter % 64
 	dataSize := len(src) + padLen
@@ -144,7 +144,7 @@ type cipherInfo struct {
 	newStream func(key, iv []byte, doe DecOrEnc) (cipher.Stream, error)
 }
 
-var cipherMethod = map[string]*cipherInfo{
+var cipherMethod = map[string]*cipherInfo{ //所有支持的块加密算法
 	"aes-128-cfb": {16, 16, newAESStream},
 	"aes-192-cfb": {24, 16, newAESStream},
 	"aes-256-cfb": {32, 16, newAESStream},
@@ -156,7 +156,7 @@ var cipherMethod = map[string]*cipherInfo{
 	"salsa20":     {32, 8, newSalsa20Stream},
 }
 
-func CheckCipherMethod(method string) error {
+func CheckCipherMethod(method string) error { //默认使用AES256
 	if method == "" {
 		method = "aes-256-cfb"
 	}
@@ -179,13 +179,13 @@ type Cipher struct {
 // NewCipher creates a cipher that can be used in Dial() etc.
 // Use cipher.Copy() to create a new cipher with the same method and password
 // to avoid the cost of repeated cipher initialization.
-func NewCipher(method, password string) (c *Cipher, err error) {
+func NewCipher(method, password string) (c *Cipher, err error) { //初始化一个加密算法，但是并没有初始化流和IV
 	if password == "" {
 		return nil, errEmptyPassword
 	}
 	var ota bool
 	if strings.HasSuffix(strings.ToLower(method), "-auth") {
-		method = method[:len(method)-5] // len("-auth") = 5
+		method = method[:len(method)-5] // len("-auth") = 5 //一次验证看起来放在Method字段后面也是可以的
 		ota = true
 	} else {
 		ota = false
@@ -195,7 +195,7 @@ func NewCipher(method, password string) (c *Cipher, err error) {
 		return nil, errors.New("Unsupported encryption method: " + method)
 	}
 
-	key := evpBytesToKey(password, mi.keyLen)
+	key := evpBytesToKey(password, mi.keyLen) //把密码转化成Key
 
 	c = &Cipher{key: key, info: mi}
 
@@ -207,7 +207,7 @@ func NewCipher(method, password string) (c *Cipher, err error) {
 }
 
 // Initializes the block cipher with CFB mode, returns IV.
-func (c *Cipher) initEncrypt() (iv []byte, err error) {
+func (c *Cipher) initEncrypt() (iv []byte, err error) { //初始化加密流和IV
 	if c.iv == nil {
 		iv = make([]byte, c.info.ivLen)
 		if _, err := io.ReadFull(rand.Reader, iv); err != nil {
@@ -235,7 +235,7 @@ func (c *Cipher) decrypt(dst, src []byte) {
 }
 
 // Copy creates a new cipher at it's initial state.
-func (c *Cipher) Copy() *Cipher {
+func (c *Cipher) Copy() *Cipher { //实现一个Getter方法，避免了加锁保护Cipher
 	// This optimization maybe not necessary. But without this function, we
 	// need to maintain a table cache for newTableCipher and use lock to
 	// protect concurrent access to that cache.
